@@ -9,3 +9,4 @@ csv = "1.0.7"
 fxhash = "0.2.1"
 petgraph = "0.4.13"
 serde = { version = "1.0.90", features = ["derive"] }
+structopt = "0.2.15"

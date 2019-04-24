@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io;
@@ -10,6 +9,8 @@ use petgraph::algo::{astar};
 use petgraph::graph::{Graph, NodeIndex};
 
 use serde::Deserialize;
+
+use structopt::StructOpt;
 
 #[allow(non_snake_case)]
 #[derive(Debug, Deserialize)]
@@ -128,7 +129,7 @@ fn get_shortest_path(
     let start_idx = heritage_map.get(&start_id).ok_or("invalid start id")?.node_idx;
     let finish_idx = heritage_map.get(&finish_id).ok_or("invalid finish id")?.node_idx;
 
-    let path_opt = astar(&graph, start_idx, |e| e == finish_idx, |_| 1, |_| 0)
+    let path_opt = astar(&graph, start_idx, |e| e == finish_idx, |_| 2, |_| 0)
         .map(|(_cost, indices)| {
             indices.iter().map(|idx| { graph[*idx] }).collect()
         })
@@ -153,32 +154,20 @@ fn fmt_person_ids(person_ids: &Vec<i32>, heritage_map: &HeritageMap) -> String {
 }
 
 
-struct CmdInput{
+#[derive(Debug, StructOpt)]
+#[structopt(name = "heritage-pathfind", about = "Find relationship path")]
+struct CmdInput {
+    #[structopt(short = "c", long = "relationship-csv")]
     csv_path: String,
+    #[structopt(short = "s", long = "start-id")]
     start_id: i32,
+    #[structopt(short = "f", long = "finish-id")]
     finish_id: i32,
 }
 
 
-fn parse_command_line_input() -> Result<CmdInput, Box<Error>> {
-    Ok(CmdInput{
-        csv_path: env::args().nth(1).ok_or("missing csv_path")?,
-        start_id: env::args().nth(2).ok_or("missing start_id")?.parse()?,
-        finish_id: env::args().nth(3).ok_or("missing finish_id")?.parse()?,
-    })
-}
-
-
-// This should be pure, let's fix it should the need ever arise.
-fn print_invalid_input() {
-    println!("Usage: ./binary-name [path to csv] [start id] [finish id]");
-    println!("Example: ./heritage-pathfind path/to/file.csv 1 32\n");
-}
-
-
 fn main() -> Result<(), Box<Error>> {
-    let cmd_input = parse_command_line_input()
-        .map_err(|e| { print_invalid_input(); e })?;
+    let cmd_input = CmdInput::from_args();
 
     let csv_file = File::open(cmd_input.csv_path)?;
 
