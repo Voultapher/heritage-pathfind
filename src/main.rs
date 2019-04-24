@@ -124,14 +124,17 @@ fn get_shortest_path(
     heritage_map: &HeritageMap,
     start_id: i32,
     finish_id: i32
-) -> Option<Vec<i32>> {
-    let start_idx = heritage_map.get(&start_id).unwrap().node_idx;
-    let finish_idx = heritage_map.get(&finish_id).unwrap().node_idx;
+) -> Result<Vec<i32>, Box<Error>> {
+    let start_idx = heritage_map.get(&start_id).ok_or("invalid start id")?.node_idx;
+    let finish_idx = heritage_map.get(&finish_id).ok_or("invalid finish id")?.node_idx;
 
-    astar(&graph, start_idx, |e| e == finish_idx, |_| 1, |_| 0)
+    let path_opt = astar(&graph, start_idx, |e| e == finish_idx, |_| 1, |_| 0)
         .map(|(_cost, indices)| {
             indices.iter().map(|idx| { graph[*idx] }).collect()
         })
+        .ok_or("no direct or indirect relationship found");
+
+    Ok(path_opt?)
 }
 
 
@@ -182,12 +185,16 @@ fn main() -> Result<(), Box<Error>> {
     let (mut graph, heritage_map) = extract_graph_from_csv(csv_file)?;
     add_graph_edges(&mut graph, &heritage_map);
 
-    match get_shortest_path(&graph, &heritage_map, cmd_input.start_id, cmd_input.finish_id) {
-        Some(person_ids) => { println!("{}", fmt_person_ids(&person_ids, &heritage_map)); }
-        None => { println!("No direct or indirect relationship found"); }
-    }
-
-    Ok(())
+    get_shortest_path(
+        &graph,
+        &heritage_map,
+        cmd_input.start_id,
+        cmd_input.finish_id
+    )
+        .map(|person_ids| {
+            println!("{}", fmt_person_ids(&person_ids, &heritage_map));
+            ()
+        })
 }
 
 
