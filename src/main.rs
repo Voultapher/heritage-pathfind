@@ -86,15 +86,15 @@ fn add_persons(
     person: &Person
 ) {
     // TODO find a better way to merge structs holding multiple Options.
-    if let Some(_) = person.SpouseID {
+    if person.SpouseID.is_some() {
         heritage.person.SpouseID = person.SpouseID;
     }
 
-    if let Some(_) = person.FatherID {
+    if person.FatherID.is_some() {
         heritage.person.FatherID = person.FatherID;
     }
 
-    if let Some(_) = person.MotherID {
+    if person.MotherID.is_some() {
         heritage.person.MotherID = person.MotherID;
     }
 }
@@ -122,7 +122,7 @@ fn extract_graph_from_csv<R: io::Read>(
             }
             None => {
                 let heritage = Heritage{
-                    person: person,
+                    person,
                     node_idx: graph.add_node(person_id),
                 };
 
@@ -136,7 +136,7 @@ fn extract_graph_from_csv<R: io::Read>(
 
 
 fn add_graph_edges(graph: &mut PersonGraph, heritage_map: &HeritageMap) {
-    for (_, heritage) in heritage_map {
+    for heritage in heritage_map.values() {
         let mut add_optional_person = |relative_opt, rel| {
             if let Some(relative_id) = relative_opt {
                 if let Some(relative) = heritage_map.get(&relative_id) {
@@ -155,23 +155,18 @@ fn add_graph_edges(graph: &mut PersonGraph, heritage_map: &HeritageMap) {
 // Pulls node + optional edge information from node indices.
 // Imo this should be library feature.
 fn map_edges(
-    nodes: &Vec<NodeIndex<u32>>,
+    nodes: &[NodeIndex<u32>],
     graph: &PersonGraph
 ) -> Vec<(i32, Option<EdgeIndex<u32>>)> {
     let mut indicies = nodes.iter().rev().peekable();
     let mut vec = Vec::new();
 
-    loop {
-        if let Some(a) = indicies.next() {
-            let edge_opt = indicies.peek()
-                .map(|b| { graph.find_edge(*a, **b) })
-                .unwrap_or(None);
+    while let Some(a) = indicies.next() {
+        let edge_opt = indicies.peek()
+            .map(|b| { graph.find_edge(*a, **b) })
+            .unwrap_or(None);
 
-            vec.push((graph[*a], edge_opt));
-        }
-        else {
-            break;
-        }
+        vec.push((graph[*a], edge_opt));
     }
 
     vec
@@ -207,7 +202,7 @@ fn get_shortest_path(
             id: person_id,
             name: lookup_name(person_id)?,
             relationship: edge_opt.map(|edge| {
-                graph.edge_weight(edge).map(|weight| { *weight })
+                graph.edge_weight(edge).cloned()
             }).unwrap_or(None)
         });
     }
@@ -216,7 +211,7 @@ fn get_shortest_path(
 }
 
 
-fn fmt_person_relationships(rels: &Vec<PersonRelationship>) -> String {
+fn fmt_person_relationships(rels: &[PersonRelationship]) -> String {
     // Imperative style would probably be faster and easier and maintain.
     rels.iter()
         .map(|person_relationship| { format!("{}", person_relationship) })
@@ -253,7 +248,6 @@ fn main() -> Result<(), Box<Error>> {
     )
         .map(|person_relationships| {
             println!("{}", fmt_person_relationships(&person_relationships));
-            ()
         })
 }
 
