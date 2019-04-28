@@ -14,27 +14,15 @@ use serde::Deserialize;
 use structopt::StructOpt;
 
 #[allow(non_snake_case)]
-#[derive(Debug, Deserialize)]
+#[derive(PartialEq, Eq, Debug, Deserialize)]
 struct Person {
     PersonID: i32,
     SpouseID: Option<i32>,
     FatherID: Option<i32>,
     MotherID: Option<i32>,
 
-    // PersonID: String,
     /// Name of the person.
     Person: String,
-    // SpouseID: String,
-    // Ehepartner: String,
-    // FatherID: String,
-    // Vater: String,
-    // MotherID: String,
-    // Mutter: String,
-    // ChildID: String,
-    // Kind: String,
-    // RelID: String,
-    // Beziehung: String,
-    // RelationKey: String,
 }
 
 
@@ -45,7 +33,7 @@ struct Heritage {
 }
 
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum Relationship {
     Spouse,
     Father,
@@ -53,7 +41,7 @@ enum Relationship {
 }
 
 
-#[derive(Debug)]
+#[derive(PartialEq, Eq, Debug)]
 struct PersonRelationship {
     id: i32,
     name: String,
@@ -100,6 +88,23 @@ fn add_persons(
 }
 
 
+fn add_graph_edges(graph: &mut PersonGraph, heritage_map: &HeritageMap) {
+    for heritage in heritage_map.values() {
+        let mut add_optional_person = |relative_opt, rel| {
+            if let Some(relative_id) = relative_opt {
+                if let Some(relative) = heritage_map.get(&relative_id) {
+                    graph.add_edge(heritage.node_idx, relative.node_idx, rel);
+                }
+            }
+        };
+
+        add_optional_person(heritage.person.SpouseID, Relationship::Spouse);
+        add_optional_person(heritage.person.FatherID, Relationship::Father);
+        add_optional_person(heritage.person.MotherID, Relationship::Mother);
+    }
+}
+
+
 // Build up graph and companion data structure while parsing csv.
 // Not the most beautiful approach, yet should help avoiding unnecessary copies.
 fn extract_graph_from_csv<R: io::Read>(
@@ -131,24 +136,9 @@ fn extract_graph_from_csv<R: io::Read>(
         }
     }
 
+    add_graph_edges(&mut graph, &heritage_map);
+
     Ok((graph, heritage_map))
-}
-
-
-fn add_graph_edges(graph: &mut PersonGraph, heritage_map: &HeritageMap) {
-    for heritage in heritage_map.values() {
-        let mut add_optional_person = |relative_opt, rel| {
-            if let Some(relative_id) = relative_opt {
-                if let Some(relative) = heritage_map.get(&relative_id) {
-                    graph.add_edge(heritage.node_idx, relative.node_idx, rel);
-                }
-            }
-        };
-
-        add_optional_person(heritage.person.SpouseID, Relationship::Spouse);
-        add_optional_person(heritage.person.FatherID, Relationship::Father);
-        add_optional_person(heritage.person.MotherID, Relationship::Mother);
-    }
 }
 
 
@@ -237,8 +227,7 @@ fn main() -> Result<(), Box<Error>> {
 
     let csv_file = File::open(cmd_input.csv_path)?;
 
-    let (mut graph, heritage_map) = extract_graph_from_csv(csv_file)?;
-    add_graph_edges(&mut graph, &heritage_map);
+    let (graph, heritage_map) = extract_graph_from_csv(csv_file)?;
 
     get_shortest_path(
         &graph,
@@ -252,8 +241,75 @@ fn main() -> Result<(), Box<Error>> {
 }
 
 
-// TODO test with csv.
-#[test]
-fn it_adds_two() {
-    assert_eq!([1, 2], vec![1, 2, 3].as_slice());
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Example graph:
+    // [F?] [M5]
+    //    | |
+    //    [F3] [M4]
+    //       | |
+    //       [F2]  [M6]
+    //          | |
+    //          [?1]
+    const CSV: &str = r#"PersonID;SpouseID;FatherID;MotherID;Person
+1;;2;6;?1
+2;6;3;4;F2
+3;4;;5;F3
+4;3;;;M4
+5;;;;M5
+6;2;;;M6"#;
+
+    #[test]
+    fn parse() {
+        let csv = CSV.as_bytes();
+
+        let (graph, heritage_map) = extract_graph_from_csv(csv).unwrap();
+
+        assert_eq!(graph.node_count(), 6);
+        assert_eq!(graph.edge_count(), 9);
+        assert_eq!(heritage_map.len(), 6);
+
+        let expected_person = Person{
+            PersonID: 1,
+            SpouseID: None,
+            FatherID: Some(2),
+            MotherID: Some(6),
+            Person: "?1".into(),
+        };
+
+        assert_eq!(heritage_map[&1].person, expected_person);
+    }
+
+
+    #[test]
+    fn pathfind() {
+        let csv = CSV.as_bytes();
+
+        let father = Some(Relationship::Father);
+        let mother = Some(Relationship::Mother);
+
+        let (graph, heritage_map) = extract_graph_from_csv(csv).unwrap();
+
+        let path_a = get_shortest_path(&graph, &heritage_map, 1, 5).unwrap();
+
+        let expected_path_a = vec![
+            PersonRelationship{id: 5, name: "M5".into(), relationship: mother},
+            PersonRelationship{id: 3, name: "F3".into(), relationship: father},
+            PersonRelationship{id: 2, name: "F2".into(), relationship: father},
+            PersonRelationship{id: 1, name: "?1".into(), relationship: None},
+        ];
+
+        assert_eq!(path_a, expected_path_a);
+
+        let path_b = get_shortest_path(&graph, &heritage_map, 1, 6).unwrap();
+
+        let expected_path_b = vec![
+            PersonRelationship{id: 6, name: "M6".into(), relationship: mother},
+            PersonRelationship{id: 1, name: "?1".into(), relationship: None},
+        ];
+
+        assert_eq!(path_b, expected_path_b);
+    }
+} // mod tests
