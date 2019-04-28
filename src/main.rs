@@ -6,8 +6,8 @@ use std::io;
 
 use fxhash::FxBuildHasher;
 
-use petgraph::algo::{astar};
-use petgraph::graph::{Graph, EdgeIndex, NodeIndex};
+use petgraph::algo::astar;
+use petgraph::graph::{EdgeIndex, Graph, NodeIndex};
 
 use serde::Deserialize;
 
@@ -25,13 +25,11 @@ struct Person {
     Person: String,
 }
 
-
 #[derive(Debug)]
 struct Heritage {
     person: Person,
     node_idx: NodeIndex<u32>,
 }
-
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 enum Relationship {
@@ -40,14 +38,12 @@ enum Relationship {
     Mother,
 }
 
-
 #[derive(PartialEq, Eq, Debug)]
 struct PersonRelationship {
     id: i32,
     name: String,
     relationship: Option<Relationship>,
 }
-
 
 type HeritageMap = HashMap<i32, Heritage, FxBuildHasher>;
 
@@ -56,23 +52,18 @@ type HeritageMap = HashMap<i32, Heritage, FxBuildHasher>;
 // u32 index space, if you have more than 4B nodes change.
 type PersonGraph = Graph<i32, Relationship, petgraph::Undirected, u32>;
 
-
 impl fmt::Display for PersonRelationship {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.relationship {
             Some(rel) => {
                 write!(f, "-> {}({}) is {:?} of", self.name, self.id, rel)
-            },
-            None => { write!(f, "-> {}({})", self.name, self.id) }
+            }
+            None => write!(f, "-> {}({})", self.name, self.id),
         }
     }
 }
 
-
-fn add_persons(
-    heritage: &mut Heritage,
-    person: &Person
-) {
+fn add_persons(heritage: &mut Heritage, person: &Person) {
     // TODO find a better way to merge structs holding multiple Options.
     if person.SpouseID.is_some() {
         heritage.person.SpouseID = person.SpouseID;
@@ -86,7 +77,6 @@ fn add_persons(
         heritage.person.MotherID = person.MotherID;
     }
 }
-
 
 fn add_graph_edges(graph: &mut PersonGraph, heritage_map: &HeritageMap) {
     for heritage in heritage_map.values() {
@@ -104,15 +94,12 @@ fn add_graph_edges(graph: &mut PersonGraph, heritage_map: &HeritageMap) {
     }
 }
 
-
 // Build up graph and companion data structure while parsing csv.
 // Not the most beautiful approach, yet should help avoiding unnecessary copies.
 fn extract_graph_from_csv<R: io::Read>(
-    rdr: R
+    rdr: R,
 ) -> Result<(PersonGraph, HeritageMap), Box<Error>> {
-    let mut rdr = csv::ReaderBuilder::new()
-        .delimiter(b';')
-        .from_reader(rdr);
+    let mut rdr = csv::ReaderBuilder::new().delimiter(b';').from_reader(rdr);
 
     let mut graph = PersonGraph::default();
     let mut heritage_map = HeritageMap::default();
@@ -126,7 +113,7 @@ fn extract_graph_from_csv<R: io::Read>(
                 add_persons(&mut heritage, &person);
             }
             None => {
-                let heritage = Heritage{
+                let heritage = Heritage {
                     person,
                     node_idx: graph.add_node(person_id),
                 };
@@ -141,19 +128,19 @@ fn extract_graph_from_csv<R: io::Read>(
     Ok((graph, heritage_map))
 }
 
-
 // Pulls node + optional edge information from node indices.
 // Imo this should be library feature.
 fn map_edges(
     nodes: &[NodeIndex<u32>],
-    graph: &PersonGraph
+    graph: &PersonGraph,
 ) -> Vec<(i32, Option<EdgeIndex<u32>>)> {
     let mut indicies = nodes.iter().rev().peekable();
     let mut vec = Vec::new();
 
     while let Some(a) = indicies.next() {
-        let edge_opt = indicies.peek()
-            .map(|b| { graph.find_edge(*a, **b) })
+        let edge_opt = indicies
+            .peek()
+            .map(|b| graph.find_edge(*a, **b))
             .unwrap_or(None);
 
         vec.push((graph[*a], edge_opt));
@@ -162,53 +149,55 @@ fn map_edges(
     vec
 }
 
-
 fn get_shortest_path(
     graph: &PersonGraph,
     heritage_map: &HeritageMap,
     child_id: i32,
-    ancestor_id: i32
+    ancestor_id: i32,
 ) -> Result<Vec<PersonRelationship>, Box<Error>> {
-    let start_idx = heritage_map.get(&child_id)
-        .ok_or("invalid start id")?.node_idx;
+    let start_idx = heritage_map
+        .get(&child_id)
+        .ok_or("invalid start id")?
+        .node_idx;
 
-    let finish_idx = heritage_map.get(&ancestor_id)
-        .ok_or("invalid finish id")?.node_idx;
+    let finish_idx = heritage_map
+        .get(&ancestor_id)
+        .ok_or("invalid finish id")?
+        .node_idx;
 
     let nodes = astar(&graph, start_idx, |e| e == finish_idx, |_| 1, |_| 0)
-        .map(|(_cost, nodes)| { nodes })
+        .map(|(_cost, nodes)| nodes)
         .ok_or("no direct or indirect relationship found")?;
 
     let lookup_name = |person_id| {
-        heritage_map.get(&person_id)
-            .map(|heritage| { heritage.person.Person.clone() })
+        heritage_map
+            .get(&person_id)
+            .map(|heritage| heritage.person.Person.clone())
             .ok_or("invalid person_id")
     };
 
     let mut rels = Vec::new();
 
     for (person_id, edge_opt) in map_edges(&nodes, &graph) {
-        rels.push(PersonRelationship{
+        rels.push(PersonRelationship {
             id: person_id,
             name: lookup_name(person_id)?,
-            relationship: edge_opt.map(|edge| {
-                graph.edge_weight(edge).cloned()
-            }).unwrap_or(None)
+            relationship: edge_opt
+                .map(|edge| graph.edge_weight(edge).cloned())
+                .unwrap_or(None),
         });
     }
 
     Ok(rels)
 }
 
-
 fn fmt_person_relationships(rels: &[PersonRelationship]) -> String {
     // Imperative style would probably be faster and easier and maintain.
     rels.iter()
-        .map(|person_relationship| { format!("{}", person_relationship) })
+        .map(|person_relationship| format!("{}", person_relationship))
         .collect::<Vec<String>>()
         .join("\n")
 }
-
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "heritage-pathfind", about = "Find person path")]
@@ -221,7 +210,6 @@ struct CmdInput {
     ancestor_id: i32,
 }
 
-
 fn main() -> Result<(), Box<Error>> {
     let cmd_input = CmdInput::from_args();
 
@@ -233,13 +221,12 @@ fn main() -> Result<(), Box<Error>> {
         &graph,
         &heritage_map,
         cmd_input.child_id,
-        cmd_input.ancestor_id
+        cmd_input.ancestor_id,
     )
-        .map(|person_relationships| {
-            println!("{}", fmt_person_relationships(&person_relationships));
-        })
+    .map(|person_relationships| {
+        println!("{}", fmt_person_relationships(&person_relationships));
+    })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -271,7 +258,7 @@ mod tests {
         assert_eq!(graph.edge_count(), 9);
         assert_eq!(heritage_map.len(), 6);
 
-        let expected_person = Person{
+        let expected_person = Person {
             PersonID: 1,
             SpouseID: None,
             FatherID: Some(2),
@@ -282,23 +269,35 @@ mod tests {
         assert_eq!(heritage_map[&1].person, expected_person);
     }
 
-
     #[test]
     fn pathfind() {
         let csv = CSV.as_bytes();
-
-        let father = Some(Relationship::Father);
-        let mother = Some(Relationship::Mother);
 
         let (graph, heritage_map) = extract_graph_from_csv(csv).unwrap();
 
         let path_a = get_shortest_path(&graph, &heritage_map, 1, 5).unwrap();
 
         let expected_path_a = vec![
-            PersonRelationship{id: 5, name: "M5".into(), relationship: mother},
-            PersonRelationship{id: 3, name: "F3".into(), relationship: father},
-            PersonRelationship{id: 2, name: "F2".into(), relationship: father},
-            PersonRelationship{id: 1, name: "?1".into(), relationship: None},
+            PersonRelationship {
+                id: 5,
+                name: "M5".into(),
+                relationship: Some(Relationship::Mother),
+            },
+            PersonRelationship {
+                id: 3,
+                name: "F3".into(),
+                relationship: Some(Relationship::Father),
+            },
+            PersonRelationship {
+                id: 2,
+                name: "F2".into(),
+                relationship: Some(Relationship::Father),
+            },
+            PersonRelationship {
+                id: 1,
+                name: "?1".into(),
+                relationship: None,
+            },
         ];
 
         assert_eq!(path_a, expected_path_a);
@@ -306,8 +305,16 @@ mod tests {
         let path_b = get_shortest_path(&graph, &heritage_map, 1, 6).unwrap();
 
         let expected_path_b = vec![
-            PersonRelationship{id: 6, name: "M6".into(), relationship: mother},
-            PersonRelationship{id: 1, name: "?1".into(), relationship: None},
+            PersonRelationship {
+                id: 6,
+                name: "M6".into(),
+                relationship: Some(Relationship::Mother),
+            },
+            PersonRelationship {
+                id: 1,
+                name: "?1".into(),
+                relationship: None,
+            },
         ];
 
         assert_eq!(path_b, expected_path_b);
